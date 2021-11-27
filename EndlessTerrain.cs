@@ -3,16 +3,14 @@ using System.Collections.Generic;
 public class EndlessTerrain : MonoBehaviour
 {
 
-    const float scale = 5;
-
-    const float viewerMoveThresholdForChunkUpdate = 40f;
-    const float sqrViewerMoveThresholdForChunkUpdate = viewerMoveThresholdForChunkUpdate * viewerMoveThresholdForChunkUpdate;
-    public static float maxViewDst = 40;
+    const int scale = 5;
+    const float sqrViewerMoveThresholdForChunkUpdate = 18f;
+    public static float maxViewDst = 15;
     public Transform viewer;
     public Material mapMaterial;
     public Mesh meshChunk;
-    public GameObject[] objnorm;
-
+    public Objnorm[] objnorm;
+    public GameObject reflectWater;
     public static Vector2 viewerPosition;
     Vector2 viewerPositionOld;
     static MapGenerator mapGenerator;
@@ -64,7 +62,7 @@ public class EndlessTerrain : MonoBehaviour
                 }
                 else
                 {
-                    terrainChunkDictionary.Add(viewedChunkCoord, new TerrainChunk(viewedChunkCoord, chunkSize, transform, mapMaterial, meshChunk, objnorm));
+                    terrainChunkDictionary.Add(viewedChunkCoord, new TerrainChunk(viewedChunkCoord, chunkSize, transform, mapMaterial, meshChunk, objnorm, reflectWater));
                 }
 
             }
@@ -73,8 +71,10 @@ public class EndlessTerrain : MonoBehaviour
 
     public class TerrainChunk
     {
-        GameObject[] norm;
+        Objnorm[] objnorm;
+        GameObject refWater;
         GameObject meshObject;
+        GameObject mapFragment;
         Vector2 position;
         Bounds bounds;
 
@@ -84,48 +84,77 @@ public class EndlessTerrain : MonoBehaviour
         MapData mapData;
         bool mapDataReceived;
 
-        public TerrainChunk(Vector2 coord, int size, Transform parent, Material material, Mesh mesh, GameObject[] objnorm)
+        public TerrainChunk(Vector2 coord, int size, Transform parent, Material material, Mesh mesh, Objnorm[] objs, GameObject reflectWater)
         {
-            norm = objnorm;
+            refWater = reflectWater;
+            objnorm = objs;
             position = coord * size;
             bounds = new Bounds(position, Vector2.one * size);
-            Vector3 positionV3 = new Vector3(-position.x, position.y, 0);
             meshObject = new GameObject("Terrain Chunk");
-            meshObject.transform.Rotate(new Vector3(-90, 0, 0));
-            meshObject.transform.position = positionV3 * scale;
-            meshObject.transform.parent = parent;
-            meshObject.transform.localScale = Vector3.one * scale * 2;
-            meshRenderer = meshObject.AddComponent<MeshRenderer>();
+            mapFragment = new GameObject("Map Fragment");
+            meshObject.transform.Rotate(new Vector2(-90, 0));
+            mapFragment.transform.Rotate(new Vector2(-90, 0));
+            meshObject.transform.position = new Vector2((int)-position.x, (int)position.y) * scale;
+            mapFragment.transform.position = new Vector3((int)-position.x, (int)position.y, 20) * scale;
+            meshObject.transform.parent = mapFragment.transform.parent = parent;
+            meshObject.transform.localScale = mapFragment.transform.localScale = Vector3.one * scale * 2;
+            meshRenderer = mapFragment.AddComponent<MeshRenderer>();
             meshRenderer.material = material;
-            meshFilter = meshObject.AddComponent<MeshFilter>();
+            meshFilter = mapFragment.AddComponent<MeshFilter>();
             meshFilter.mesh = mesh;
             SetVisible(false);
             mapGenerator.RequestMapData(position, OnMapDataReceived);
         }
-        public void PlaceObject(int[,] objectMap, int width, int height, Vector3 place, GameObject parent)
+        public void PlaceObject(int[,] objectMap, int width, int height, Vector2Int place, GameObject parent)
         {
+            int j = 0;
             GameObject land = new GameObject("Landmass");
-            land.transform.localPosition = place;
-            land.transform.SetParent(parent.transform);
+            GameObject liquid = new GameObject("Water");
+            land.transform.localPosition = liquid.transform.localPosition = new Vector2(place.x, place.y);
+            land.transform.parent = liquid.transform.parent = parent.transform;
+            land.isStatic = liquid.isStatic = true;
+            if (objectMap[0, 0] < 2 && objectMap[20, 20] < 2 && objectMap[0, 20] < 2 && objectMap[20, 0] < 2 && objectMap[10, 0] < 2 && objectMap[0, 10] < 2 && objectMap[10, 10] < 2 && objectMap[20, 10] < 2 && objectMap[10, 20] < 2)
+            {
+                GameObject water = Instantiate(refWater, liquid.transform.position + new Vector3(2.5f, 0), Quaternion.identity);
+                water.transform.SetParent(parent.transform);
+                Destroy(liquid);
+                j++;
+            }
             for (int y = 0; y < height - 1; y++)
             {
                 for (int x = 0; x < width - 1; x++)
                 {
-                    if (norm[objectMap[x, y]] != null)
+                    Objnorm listObj = objnorm[objectMap[x, y]];
+                    if (listObj.objList != null)
                     {
-                        GameObject chunkobj = Instantiate(norm[objectMap[x, y]], place, Quaternion.identity);
-                        if (objectMap[x, y] == 4)
+                        for (int i = objectMap[x, y] < 2 ? j : 0; i < listObj.objList.Length; i++)
                         {
-                            chunkobj.transform.localPosition = chunkobj.transform.position + new Vector3(-x * scale + UnityEngine.Random.Range(-3, 3), -y * scale + UnityEngine.Random.Range(-3, 3), 0);
-                            goto End;
+                            if (UnityEngine.Random.Range(0, 100) < listObj.chance[i])
+                            {
+                                GameObject chunkobj = Instantiate(listObj.objList[i], new Vector2((int)(place.x + -x * scale), (int)(place.y + -y * scale)), Quaternion.identity);
+                                if (objectMap[x, y] < 2 && i == 0)
+                                {
+                                    chunkobj.transform.SetParent(liquid.transform);
+                                    chunkobj.transform.localPosition += new Vector3(0, -2.5f, 0);
+                                }
+                                else
+                                {
+                                    if (listObj.spread[i])
+                                    {
+                                        chunkobj.transform.localPosition += new Vector3(UnityEngine.Random.Range(-3, 3), UnityEngine.Random.Range(-3, 3));
+                                        Destroy(chunkobj.GetComponent<WaterReflectableScript>());
+                                    }
+                                    chunkobj.transform.SetParent(land.transform);
+                                }
+                                chunkobj.isStatic = true;
+                            }
                         }
-                        chunkobj.transform.localPosition = chunkobj.transform.position + new Vector3(-x * scale, -y * scale, 0);
-                    End:
-                        chunkobj.transform.SetParent(land.transform);
                     }
                 }
             }
-            land.transform.localPosition = new Vector3(5, 0, 5);
+            land.transform.localPosition = liquid.transform.localPosition = new Vector3(5, 0, 5);
+            // SimpleSpriteCombine lol = land.AddComponent<SimpleSpriteCombine>();
+            // lol.CombineSprites();
         }
 
         void OnMapDataReceived(MapData mapData)
@@ -134,7 +163,8 @@ public class EndlessTerrain : MonoBehaviour
             mapDataReceived = true;
             Texture2D texture = TextureGenerator.TextureFromColourMap(mapData.colourMap, MapGenerator.mapChunkSize, MapGenerator.mapChunkSize);
             meshRenderer.material.mainTexture = texture;
-            PlaceObject(mapData.objectMap, MapGenerator.mapChunkSize, MapGenerator.mapChunkSize, meshObject.transform.position, meshObject);
+            PlaceObject(mapData.objectMap, MapGenerator.mapChunkSize, MapGenerator.mapChunkSize, new Vector2Int((int)meshObject.transform.position.x, (int)meshObject.transform.position.y), meshObject);
+            meshObject.isStatic = mapFragment.isStatic = true;
             UpdateTerrainChunk();
         }
         public void UpdateTerrainChunk()
@@ -144,12 +174,10 @@ public class EndlessTerrain : MonoBehaviour
             {
                 float viewerDstFromNearestEdge = Mathf.Sqrt(bounds.SqrDistance(viewerPosition));
                 bool visible = viewerDstFromNearestEdge <= maxViewDst;
-
                 if (visible)
                 {
                     terrainChunksVisibleLastUpdate.Add(this);
                 }
-
                 SetVisible(visible);
             }
         }
@@ -158,5 +186,12 @@ public class EndlessTerrain : MonoBehaviour
         {
             meshObject.SetActive(visible);
         }
+    }
+    [System.Serializable]
+    public struct Objnorm
+    {
+        public GameObject[] objList;
+        public int[] chance;
+        public bool[] spread;
     }
 }
