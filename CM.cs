@@ -1,51 +1,79 @@
-﻿using UnityEngine;
-using System.Collections;
+using UnityEngine;
+
 public class CM : MonoBehaviour
 {
-    public GameObject Player;
-    private Vector3 offset;
-    private Transform cameratrans;
-    public float Velocity;
-    public float MinDistance;
-    void Start()
+    [SerializeField] private Transform cameratrans;
+    [SerializeField] private float Velocity, MinDistance;
+    [SerializeField] private Camera mainCam;
+    public static bool cameraForMap;
+    private Vector3 offset, playerOffset;
+    private Transform playerTransform;
+    private bool changeCam = false;
+
+    private void Start()
     {
-        cameratrans = transform;
-        offset = cameratrans.position - Player.transform.position;
+        cameraForMap = false;
+        playerTransform = PlayerController.playerTrans;
+        offset = cameratrans.position - playerTransform.position;
+        cameratrans.position = playerTransform.position + new Vector3(0, 0, -1);
     }
 
-    void LateUpdate()
+    private void LateUpdate()
     {
-        Raycast();
-        var targetPos = Player.transform.position + offset;
-        if (Player == null || Vector3.Distance(cameratrans.position, targetPos) < MinDistance)
+        if (changeCam || Input.GetKeyDown("p")) {
+            if(cameraForMap){
+                playerTransform.gameObject.SetActive(true);
+                cameratrans.position = playerOffset;
+                cameratrans.position += new Vector3(0, 0, -1); 
+                mainCam.orthographicSize = 20;
+            }
+            else{
+                playerTransform.gameObject.SetActive(false);
+                cameratrans.position += new Vector3(0, 0, 99);
+                playerOffset = playerTransform.position;
+                mainCam.orthographicSize = 100;
+            }
+            cameraForMap = !cameraForMap;
+            changeCam = false;
+        }
+        if(cameraForMap){
+            UpdateForMap();
+        }
+        else{
+            UpdateForGame();
+        }
+    }
+
+    public void Changed(){
+        changeCam = true;
+    }
+
+    private void UpdateForGame() {
+        var targetPos = playerTransform.position + offset;
+        if (playerTransform == null || Vector3.Distance(cameratrans.position, targetPos) < MinDistance)
         {
             return;
         }
-        transform.Translate(transform.InverseTransformPoint(Vector3.Lerp(cameratrans.position, targetPos, Velocity * Time.fixedDeltaTime)));
+        cameratrans.Translate(cameratrans.InverseTransformPoint(Vector3.Lerp(cameratrans.position, targetPos, Velocity * Time.fixedDeltaTime)));
     }
 
-    void Raycast()
-    {
-        RaycastHit2D[] hits = Physics2D.RaycastAll(cameratrans.position + new Vector3(0, 2, 0), transform.forward);
-        for (int i = 0; i < hits.Length; i++)
-        {
-            GameObject obj = hits[i].collider.gameObject;
-            if (obj.tag == "Chost")
-            {
-                StartCoroutine(changeAlpha(0.3f, obj));
-            }
+    private void UpdateForMap(){
+        if(Input.GetKeyDown("=")){
+            mainCam.orthographicSize -= 20;
         }
-    }
-
-    private IEnumerator changeAlpha(float a, GameObject obj)
-    {
-        Material mat = obj.GetComponent<Renderer>().material;
-        Color color = mat.color;
-        color.a = a;
-        mat.color = color;
-        yield return new WaitForSeconds(3);
-        color.a = 1f;
-        mat.color = color;
+        else if(Input.GetKeyDown("-")){
+            mainCam.orthographicSize += 20;
+        }
+        else if (Input.mouseScrollDelta.y != 0){
+            mainCam.orthographicSize += Input.mouseScrollDelta.y * 20 * mainCam.orthographicSize / 300;
+            this.transform.Translate(new Vector3((Input.mousePosition.x - Screen.width/2) * 0.5f, (Input.mousePosition.y - Screen.height/2) * 0.5f, 0) * (Input.mouseScrollDelta.y > 0 ? -1 : 1) * mainCam.orthographicSize / 200);
+        }
+        if(mainCam.orthographicSize > 1000){
+            mainCam.orthographicSize = 1000;
+        }
+        else if(mainCam.orthographicSize < 10){
+            mainCam.orthographicSize = 10;
+        }
     }
 }
 
